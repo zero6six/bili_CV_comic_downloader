@@ -26,7 +26,9 @@ def extract_images_from_json(data):
     images = []
 
     try:
-        opus_content = data.get("meta", {}).get("opus", {}).get("content", {})
+        # get_detail() 返回的新版 API 结构: root -> opus -> content
+        opus_content = data.get("opus", {}).get("content", {})
+        
         paragraphs = opus_content.get("paragraphs", [])
         for para in paragraphs:
             # para_type 为 2 通常代表图片节点
@@ -86,13 +88,21 @@ async def get_list(lid):
 async def get_co(id):
     a = article.Article(cvid=id)
     print(f"专栏cv号：{id}")
-    await a.fetch_content()
+    try:
+        # 使用 get_detail() 替代 fetch_content()，因为旧版 API 已失效
+        # 参考：https://github.com/Nemo2011/bilibili-api/issues/994
+        a_data = await a.get_detail()
+    except Exception as e:
+        print(f"[red]获取文章内容失败: {e}[/red]")
+        a_data = {}
 
-    a = a.json()
-    images = extract_images_from_json(a)
+    images = extract_images_from_json(a_data)
+
+    # 优先从根目录获取标题 (get_detail 返回格式)
+    cname = a_data.get("title", "Unknown_Title")
+
     print("图片列表：")
     print(images)
-    cname = a['meta']['title']
     return images, cname
 
 
@@ -135,7 +145,8 @@ def c_cbz(path, title_name, cname, cbz_path, cid):
         format=Format.WEB_COMIC,
         black_white=YesNo.NO,
         manga=Manga.YES,
-        age_rating=AgeRating.PENDING
+        age_rating=AgeRating.PENDING,
+        web=f"https://www.bilibili.com/read/cv{cid}"
     )
     try:
         cbz_path.write_bytes(comic.pack())
