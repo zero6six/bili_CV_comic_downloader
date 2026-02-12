@@ -135,19 +135,24 @@ def c_cbz(path, title_name, cname, cbz_path, cid):
         for i, path in enumerate(paths)
     ]
 
-    comic = ComicInfo.from_pages(
-        pages=pages,
-        title=cname,
-        series=title_name,
-        number=COUNT,
-        alternate_number=cid,
-        language_iso='zh',
-        format=Format.WEB_COMIC,
-        black_white=YesNo.NO,
-        manga=Manga.YES,
-        age_rating=AgeRating.PENDING,
-        web=f"https://www.bilibili.com/read/cv{cid}"
-    )
+    metadata = {
+        "pages": pages,
+        "title": cname,
+        "alternate_number": cid,
+        "language_iso": 'zh',
+        "format": Format.WEB_COMIC,
+        "black_white": YesNo.NO,
+        "manga": Manga.YES,
+        "age_rating": AgeRating.PENDING,
+        "web": f"https://www.bilibili.com/read/cv{cid}"
+    }
+
+    if title_name != "Single":
+        # 单个专栏/单行本时不传递系列名和编号，防止阅读器解析异常
+        metadata["series"] = title_name
+        metadata["number"] = COUNT
+
+    comic = ComicInfo.from_pages(**metadata)
     try:
         cbz_path.write_bytes(comic.pack())
     except Exception as e:
@@ -188,10 +193,10 @@ async def main():
             await download(ipath, image)
             index += 1
 
-        if not os.path.exists(f"{cbz_path}/Single/"):
-            os.makedirs(f"{cbz_path}/Single/")
-        cbz_fpath = Path(f'{cbz_path}/Single/') / f'{cname}.cbz'
-        #c_cbz(path, "Single", cname, cbz_fpath, cid)
+        if not os.path.exists(f"temp/{cbz_path}/Single/"):
+            os.makedirs(f"temp/{cbz_path}/Single/")
+        cbz_fpath = Path(f'temp/{cbz_path}/Single/') / f'{cname}.zip'
+        c_cbz(path, "Single", cname, cbz_fpath, cid)
         return
 
     # 处理合集
@@ -218,9 +223,9 @@ async def main():
                 ipath = f"{path}/{index:03}.jpg"
                 await download(ipath, image)
                 index += 1
-            if not os.path.exists(f"{cbz_path}/{title_name}/"):
-                os.makedirs(f"{cbz_path}/{title_name}/")
-            cbz_fpath = Path(f'{cbz_path}/{title_name}/') / f'{cindex}-{cname}.cbz'
+            if not os.path.exists(f"temp/{cbz_path}/{title_name}/"):
+                os.makedirs(f"temp/{cbz_path}/{title_name}/")
+            cbz_fpath = Path(f'temp/{cbz_path}/{title_name}/') / f'{cindex}-{cname}.zip'
             c_cbz(path, title_name, cname, cbz_fpath, x)
             global COUNT
             COUNT += 1
