@@ -103,7 +103,7 @@ async def download(path, url):
     time.sleep(sleep_time)
 
 
-def c_cbz(path, title_name, cname, cbz_path, cid):
+def c_cbz(path, title_name, cname, cbz_path, cid=None, oid=None):
     cbz_path.parent.mkdir(parents=True, exist_ok=True)
     paths = sorted(Path(path).iterdir(), key=lambda x: x.name)
     pages = [
@@ -114,23 +114,26 @@ def c_cbz(path, title_name, cname, cbz_path, cid):
         for i, path in enumerate(paths)
     ]
 
+    identifier = oid if oid else cid
+    web_url = f"https://www.bilibili.com/opus/{oid}" if oid else f"https://www.bilibili.com/read/cv{cid}"
+
     metadata = {
         "pages": pages,
         "title": cname,
-        "alternate_number": cid,
+        "alternate_number": identifier,
         "language_iso": 'zh',
         "format": Format.WEB_COMIC,
         "black_white": YesNo.NO,
         "manga": Manga.YES,
         "age_rating": AgeRating.PENDING,
-        "web": f"https://www.bilibili.com/read/cv{cid}"
+        "web": web_url
     }
 
     if title_name != "Single":
         # 单个专栏/单行本时不传递系列名和编号，防止阅读器解析异常
         metadata["series"] = title_name
         metadata["number"] = COUNT
-
+    
     comic = ComicInfo.from_pages(**metadata)
     try:
         cbz_path.write_bytes(comic.pack())
@@ -157,8 +160,7 @@ async def main():
         help='图文的opus id (可选，旧参数兼容)')
     parser.add_argument(
         '--cbz',
-        help='cbz文件夹位置',
-        required=True)
+        help='cbz文件夹位置')
 
     args = parser.parse_args()
     
@@ -174,6 +176,8 @@ async def main():
             cid = re.search(r"\d+", input_id).group()
         elif "rl" in input_id.lower():
             lid = re.search(r"\d+", input_id).group()
+        elif "opus" in input_id.lower():
+            oid = re.search(r"\d+", input_id).group()
         else:
             # 纯数字默认为 oid
             oid = re.search(r"\d+", input_id).group()
@@ -196,7 +200,7 @@ async def main():
         if not os.path.exists(f"temp/{cbz_path}/Single/"):
             os.makedirs(f"temp/{cbz_path}/Single/")
         cbz_fpath = Path(f'temp/{cbz_path}/Single/') / f'{cname}.zip'
-        c_cbz(path, "Single", cname, cbz_fpath, oid)
+        c_cbz(path, "Single", cname, cbz_fpath, oid=oid)
         return
 
     # 处理单个专栏
@@ -217,7 +221,7 @@ async def main():
         if not os.path.exists(f"temp/{cbz_path}/Single/"):
             os.makedirs(f"temp/{cbz_path}/Single/")
         cbz_fpath = Path(f'temp/{cbz_path}/Single/') / f'{cname}.zip'
-        c_cbz(path, "Single", cname, cbz_fpath, cid)
+        c_cbz(path, "Single", cname, cbz_fpath, cid=cid)
         return
 
     # 处理合集
@@ -247,7 +251,7 @@ async def main():
             if not os.path.exists(f"temp/{cbz_path}/{title_name}/"):
                 os.makedirs(f"temp/{cbz_path}/{title_name}/")
             cbz_fpath = Path(f'temp/{cbz_path}/{title_name}/') / f'{cindex}-{cname}.zip'
-            c_cbz(path, title_name, cname, cbz_fpath, x)
+            c_cbz(path, title_name, cname, cbz_fpath, cid=x)
             global COUNT
             COUNT += 1
             cindex += 1
