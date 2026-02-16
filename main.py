@@ -143,23 +143,40 @@ def c_cbz(path, title_name, cname, cbz_path, cid):
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        'id',
+        nargs='?',
+        help='专栏id(cv)/合集id(rl)/图文id(opus/纯数字)')
+    parser.add_argument(
         '--lid',
-        help='专栏合集的id,例如https://www.bilibili.com/read/readlist/rl843588中843588')
+        help='专栏合集的id (可选，旧参数兼容)')
     parser.add_argument(
         '--cid',
-        help='专栏的cvid,例如https://www.bilibili.com/read/cv40061677中40061677')
+        help='专栏的cvid (可选，旧参数兼容)')
     parser.add_argument(
         '--oid',
-        help='图文的opus id,例如https://www.bilibili.com/opus/1169931842898362376中1169931842898362376')
+        help='图文的opus id (可选，旧参数兼容)')
     parser.add_argument(
         '--cbz',
-        help='cbz文件夹位置')
+        help='cbz文件夹位置',
+        required=True)
 
     args = parser.parse_args()
+    
+    # 参数归一化处理
+    input_id = args.id
     lid = args.lid
     cid = args.cid
     oid = args.oid
     cbz_path = args.cbz
+
+    if input_id:
+        if "cv" in input_id.lower():
+            cid = re.search(r"\d+", input_id).group()
+        elif "rl" in input_id.lower():
+            lid = re.search(r"\d+", input_id).group()
+        else:
+            # 纯数字默认为 oid
+            oid = re.search(r"\d+", input_id).group()
 
     # 优先处理单个图文（opus）
     if oid is not None:
@@ -185,7 +202,7 @@ async def main():
     # 处理单个专栏
     if cid is not None:
         print(f"下载单个专栏: {cid}")
-        images, cname = await get_co(cid)
+        images, cname = await get_co(int(cid))
         cname = clean_filename(cname)
         path = f"{os.path.abspath('.')}/download/Single/{cname}"
         if not os.path.exists(path):
@@ -206,7 +223,7 @@ async def main():
     # 处理合集
     if lid is not None:
         get_downloaded_list(lid)
-        id, title_name = await get_list(lid)
+        id, title_name = await get_list(int(lid))
         title_name = title_name.replace(" ", "_").replace(":", "：").replace("?", "？")
         if ID:
             cindex = len(ID) + 1
