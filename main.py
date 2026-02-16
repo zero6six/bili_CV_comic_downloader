@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 import requests
-from bilibili_api import article
+from bilibili_api import article, opus
 from cbz.comic import ComicInfo
 from cbz.constants import PageType, YesNo, Manga, AgeRating, Format
 from cbz.page import PageInfo
@@ -21,45 +21,6 @@ COUNT = 1
 def clean_filename(filename):
     invalid_chars = r'[\\/:*?"<>|]'
     return re.sub(invalid_chars, "_", filename)
-
-def extract_images_from_json(data):
-    images = []
-
-    try:
-        # get_detail() 返回的新版 API 结构: root -> opus -> content
-        opus_content = data.get("opus", {}).get("content", {})
-        
-        paragraphs = opus_content.get("paragraphs", [])
-        for para in paragraphs:
-            # para_type 为 2 通常代表图片节点
-            if para.get("para_type") == 2 and "pic" in para:
-                for pic in para["pic"].get("pics", []):
-                    if "url" in pic:
-                        images.append(pic["url"])
-    except Exception as e:
-        print(f"[bold yellow]警告：尝试从 Opus 结构提取图片失败: {e}[/bold yellow]")
-
-    if not images:
-        def traverse_children(children):
-            for child in children:
-                if child.get("type") == "ImageNode" and "url" in child:
-                    images.append(child["url"])
-                elif child.get("type") == "TextNode":
-                    text = child.get("text", "")
-                    image_urls = re.findall(r'https?://i0\.hdslb\.com[^\s"\'}]+', text)
-                    images.extend(image_urls)
-                elif "children" in child:
-                    traverse_children(child["children"])
-
-        traverse_children(data.get("children", []))
-
-    unique_images = []
-    for img in images:
-        img_url = img.replace("http://", "https://")
-        if img_url not in unique_images:
-            unique_images.append(img_url)
-
-    return unique_images
 
 
 def get_downloaded_list(lid):
@@ -86,20 +47,38 @@ async def get_list(lid):
 
 
 async def get_co(id):
+    """通过 cv 号获取专栏图片，内部转为 Opus 处理"""
     a = article.Article(cvid=id)
     print(f"专栏cv号：{id}")
-    try:
-        # 使用 get_detail() 替代 fetch_content()，因为旧版 API 已失效
-        # 参考：https://github.com/Nemo2011/bilibili-api/issues/994
-        a_data = await a.get_detail()
-    except Exception as e:
-        print(f"[red]获取文章内容失败: {e}[/red]")
-        a_data = {}
+    o = await a.turn_to_opus()
+    return await get_opus_images(o)
 
-    images = extract_images_from_json(a_data)
 
-    # 优先从根目录获取标题 (get_detail 返回格式)
-    cname = a_data.get("title", "Unknown_Title")
+async def get_opus(oid):
+    """通过 opus id 获取图文图片"""
+    o = opus.Opus(opus_id=oid)
+    print(f"图文opus号：{oid}")
+    return await get_opus_images(o)
+
+
+async def get_opus_images(o):
+    """从 Opus 对象提取图片列表和标题"""
+    info = await o.get_info()
+
+    # 从 modules 中获取标题
+    cname = "Unknown_Title"
+    for module in info.get("item", {}).get("modules", []):
+        if module.get("module_title"):
+            cname = module["module_title"]["text"]
+            break
+
+    # 获取图片 URL 列表
+    raw_images = await o.get_images_raw_info()
+    images = []
+    for pic in raw_images:
+        url = pic["url"].replace("http://", "https://")
+        if url not in images:
+            images.append(url)
 
     print("图片列表：")
     print(images)
@@ -170,15 +149,40 @@ async def main():
         '--cid',
         help='专栏的cvid,例如https://www.bilibili.com/read/cv40061677中40061677')
     parser.add_argument(
+        '--oid',
+        help='图文的opus id,例如https://www.bilibili.com/opus/1169931842898362376中1169931842898362376')
+    parser.add_argument(
         '--cbz',
         help='cbz文件夹位置')
 
     args = parser.parse_args()
     lid = args.lid
     cid = args.cid
+    oid = args.oid
     cbz_path = args.cbz
 
-    # 优先处理单个专栏
+    # 优先处理单个图文（opus）
+    if oid is not None:
+        print(f"下载单个图文: {oid}")
+        images, cname = await get_opus(int(oid))
+        cname = clean_filename(cname)
+        path = f"{os.path.abspath('.')}/download/Single/{cname}"
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        index = 0
+        for image in images:
+            ipath = f"{path}/{index:03}.jpg"
+            await download(ipath, image)
+            index += 1
+
+        if not os.path.exists(f"temp/{cbz_path}/Single/"):
+            os.makedirs(f"temp/{cbz_path}/Single/")
+        cbz_fpath = Path(f'temp/{cbz_path}/Single/') / f'{cname}.zip'
+        c_cbz(path, "Single", cname, cbz_fpath, oid)
+        return
+
+    # 处理单个专栏
     if cid is not None:
         print(f"下载单个专栏: {cid}")
         images, cname = await get_co(cid)
@@ -234,7 +238,7 @@ async def main():
             save_downloaded_list(lid)
         return
 
-    print("没有提供lid或cid，请输入lid或cid再进行下载")
+    print("没有提供lid、cid或oid，请输入对应id再进行下载")
     exit(1)
 
 
